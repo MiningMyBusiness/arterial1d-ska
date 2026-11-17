@@ -1,0 +1,14 @@
+arterial1d
+Copyright 2026 the arterial1d authors
+
+This product includes files from openBF (https://github.com/INSIGNEO/openBF),
+Copyright 2023 INSIGNEO Institute for in silico Medicine, licensed under the
+Apache License, Version 2.0:
+
+  src/arterial1d/data/adan56/adan56.yaml       models/boileau2015/adan56/adan56.yaml
+  src/arterial1d/data/adan56/adan56_inlet.dat  models/boileau2015/adan56/adan56_inlet.dat
+
+copied unchanged from openBF commit fae5865 (2026-10-16). The ADAN56 model is
+that of Blanco et al., IEEE Trans. Biomed. Eng. 62 (2015) 736-753, with the
+parameters of benchmark 6 in Boileau et al., Int. J. Numer. Meth. Biomed.
+Engng 31 (2015) e02732.

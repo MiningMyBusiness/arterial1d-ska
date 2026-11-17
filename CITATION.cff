@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "arterial1d: one-dimensional blood flow in elastic arterial trees"
+version: 0.1.0.dev0
+license: Apache-2.0
+authors:
+  - family-names: Bhattacharyya
+    given-names: Kiran
+references:
+  - type: article
+    title: "A benchmark study of numerical schemes for one-dimensional arterial blood flow modelling"
+    authors:
+      - family-names: Boileau
+        given-names: Etienne
+    journal: "International Journal for Numerical Methods in Biomedical Engineering"
+    volume: 31
+    year: 2015
+    doi: 10.1002/cnm.2732
+  - type: article
+    title: "openBF: an open-source finite volume 1D blood flow solver"
+    authors:
+      - family-names: Benemerito
+        given-names: I.
+      - family-names: Melis
+        given-names: A.
+      - family-names: Wehenkel
+        given-names: A.
+      - family-names: Marzo
+        given-names: A.
+    journal: "Physiological Measurement"
+    volume: 45
+    year: 2024
+    doi: 10.1088/1361-6579/ad9663
