@@ -8,9 +8,9 @@ arterial1d is an independent implementation, compatible with the network file fo
 different numerical scheme (two-step MacCormack finite differences; openBF uses MUSCL finite
 volumes). It is not a port of openBF.
 
-> **Status: pre-release.** Validated against five of the six benchmarks of Boileau et al. (2015) so
-> far: cases 2–4 (common carotid, upper thoracic aorta, aortic bifurcation; against 3-D), case 5
-> (37-artery network; against in-vitro measurements) and case 6 (ADAN56). Case 1 is not yet run.
+> **Status: pre-release.** Run against all six benchmarks of Boileau et al. (2015): case 1 (single
+> pulse), cases 2–4 (common carotid, upper thoracic aorta, aortic bifurcation; against 3-D), case 5
+> (37-artery network; against in-vitro measurements) and case 6 (ADAN56).
 
 ## Install
 
@@ -62,6 +62,26 @@ Per vessel, with area A, flow Q, pressure P:
   for its rise with pressure.
 
 ## Validation
+
+**Case 1, single pulse** (10 m elastic tube, Gaussian inflow pulse about 31 cm long, absorbing
+outlet; inviscid and viscous). The paper reports no error table; it checks that the inviscid peak
+changes by less than 0.9% along the tube and that the viscous peak follows the exponential decay of
+its Eq. 15.
+
+| arterial1d | Courant number | inviscid peak change | viscous / Eq. 15 | profile RMS vs FVM, % of peak |
+| --- | --- | --- | --- | --- |
+| dx = 1.25 mm, default time step | 0.50 | +0.20% | +0.38 to +0.45% | 0.26 |
+| dx = 2.5 mm, cfl 0.95, c_headroom 1.05 | 0.88 | +0.01% | +0.36 to +0.41% | 0.30 |
+| dx = 2.5 mm, default time step | 0.49 | −1.32% | +0.35 to +0.41% | 0.97 |
+| dx = 5 mm, default time step | 0.49 | −11.0% | +0.28 to +0.39% | 3.0 |
+
+The published schemes differ from Eq. 15 by 0.2–0.8%. The peak travels at 6.17 m/s, the tube-law
+wave speed. **Numerical damping of short features depends on the Courant number**: the default time
+step leaves headroom for the wave speed to rise by 60% with pressure, which puts a small pulse at a
+Courant number near 0.5, where MacCormack damps short wavelengths most. For waveforms with sharp
+features, refine dx or reduce `c_headroom` to what the pressure range needs. On ADAN56 the
+Courant number (0.47 vs 0.71) changes nothing: median and worst errors and the distal timing lag
+stay the same.
 
 Error measures and comparison protocol are those of Boileau et al. (2015). The benchmark code
 reproduces the paper's published FVM errors against 3-D (Tables IV, VI and VIII) from the published
@@ -150,7 +170,6 @@ coefficient are the remaining suspects.
 
 Reproduce with `python scripts/benchmark_adan56.py --data <folder>` (see *Reference data*).
 
-**Not yet validated:** Boileau et al. case 1 (single pulse in a 10 m tube).
 
 ## Limitations
 
@@ -160,7 +179,9 @@ Reproduce with `python scripts/benchmark_adan56.py --data <folder>` (see *Refere
   resistance (no reflection-coefficient outlets).
 - A subset of openBF's YAML options. The reader raises `UnsupportedFeature` for anything else
   rather than ignoring it.
-- Fixed time step per run.
+- Fixed time step per run, set from the reference wave speed with headroom (`c_headroom`, default
+  1.6) for its rise with pressure; no run-time check of the Courant number. The default damps
+  short pulses noticeably at dx >= 2.5 mm (see case 1).
 - No speed comparison with other solvers has been made on a matched test. For scale, ADAN56 at
   dx = 5 mm runs in about 0.1 s per cardiac cycle on one laptop core.
 

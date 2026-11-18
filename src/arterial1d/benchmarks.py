@@ -281,3 +281,78 @@ def network37(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles:
                                               "Q": on_times(tp, t, res.Q[nm][-n:], period)})
         out["sites"][nm] = so
     return out
+
+
+# ---- case 1: single pulse in a 10 m tube (Boileau et al. 2015, section 4.1, Table II, Eqs. 14-15) ---
+# A0 = pi cm^2 (r0 = 1 cm), h 1.5 mm, E 400 kPa (c0 = 6.17 m/s), rho 1050, mu 4 mPa s or 0, zeta 9,
+# Pd = Pext = Pout = 0, Q_in = 1e-6 exp(-10000 (t - 0.05)^2) m^3/s, completely absorbing outlet
+# (here a pure resistance matched to the characteristic impedance). The paper reports no error
+# table: it compares pressure profiles at t = 0.1, 0.3, ..., 1.5 s, the inviscid peak decay
+# ("less than 0.9%") and the viscous peak decay with Eq. 15.
+PULSE = dict(L=10.0, r0=0.01, h=1.5e-3, E=400.0e3, rho=1050.0, mu=4.0e-3, zeta=9)
+PULSE_TIMES = (0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5)
+
+
+def _pulse_run(viscous: bool, dx: float, cfl: float, c_headroom: float):
+    p = PULSE
+    net = Network([Vessel("tube", p["L"], p["r0"], p["r0"], None, E=p["E"], h=p["h"])],
+                  rho=p["rho"], mu=p["mu"] if viscous else 0.0, alpha=1.0, friction_coeff_pi=2.0 * (p["zeta"] + 2),
+                  dx=dx, cfl=cfl, c_headroom=c_headroom, P_ven=0.0, P_ref=0.0)
+    s, e = net.start[0], net.end[0]
+    probes = {f"n{i}": i for i in range(s, e)}
+    res = net.simulate(lambda t: 1e-6 * np.exp(-1.0e4 * (t - 0.05) ** 2), 1.5, 1, probes, P_init=0.0, record_hz=100.0)
+    if not res.finite:
+        raise RuntimeError("simulation did not stay finite")
+    x = net.x[0]
+    prof = {}
+    for tt in PULSE_TIMES:
+        k = int(np.argmin(np.abs(res.t - tt)))
+        assert abs(res.t[k] - tt) < 1e-9
+        prof[tt] = np.array([res.P[f"n{i}"][k] for i in range(s, e)])
+    return x, prof, float(net.wave_speed0()[0]), float(res.dt * net.wave_speed0()[0] / net.dxv[0])
+
+
+def single_pulse(root: Optional[os.PathLike] = None, *, dx: float = 0.00125, cfl: float = 0.8,
+                 c_headroom: float = 1.6) -> dict:
+    """Case 1: profiles against the six published schemes, peak decay, and Eq. 15.
+
+    MacCormack's numerical damping of this short pulse (wavelength ~31 cm) depends on the Courant
+    number c0 dt/dx. The Network defaults (cfl 0.8, c_headroom 1.6) give 0.49: the inviscid peak
+    then falls 11% (dx 5 mm), 1.3% (2.5 mm) or rises 0.2% (1.25 mm) over 1.4 s. At Courant ~0.9
+    (cfl 0.95, c_headroom 1.05; safe here because the pulse barely changes c) it falls 2.9% at 5 mm
+    and 0.0% at 2.5 mm. The paper's criterion is a decrease of less than 0.9%."""
+    r = reference_root(root)
+    if r is None:
+        raise FileNotFoundError(f"Boileau et al. 2015 supplementary data not found; set {ENV}")
+    p = PULSE
+    nd = r / "Benchmark1_SinglePulseModel" / "NumData"
+    out = {"dx": dx, "cfl": cfl, "c_headroom": c_headroom}
+    runs = {}
+    for kind in ("inviscid", "viscous"):
+        x, prof, c0, courant = _pulse_run(kind == "viscous", dx, cfl, c_headroom)
+        out["courant"] = courant
+        runs[kind] = (x, prof)
+        peaks = [float(prof[t].max()) for t in PULSE_TIMES]
+        xpk = [float(x[int(np.argmax(prof[t]))]) for t in PULSE_TIMES]
+        k = {"c0": c0, "peak_Pa": peaks, "peak_x_m": xpk,
+             "peak_speed_m_s": float(np.polyfit(PULSE_TIMES, xpk, 1)[0]),
+             "peak_change_pct": 100 * (peaks[-1] / peaks[0] - 1), "vs_schemes": {}}
+        for s in SCHEMES:
+            d = np.loadtxt(nd / f"{s}_{kind}.txt")
+            rms, pk = [], []
+            for j, t in enumerate(PULSE_TIMES):
+                ref = d[:, j + 1] * 1e3
+                mine = np.interp(d[:, 0], x, prof[t])
+                rms.append(100 * float(np.sqrt(np.mean((mine - ref) ** 2)) / ref.max()))
+                pk.append(100 * float(prof[t].max() / ref.max() - 1))
+            k["vs_schemes"][s] = {"profile_rms_pct_of_peak": rms, "peak_diff_pct": pk}
+        out[kind] = k
+    # Eq. 15: viscous peak / inviscid peak = exp(-(zeta + 2) pi mu x / (rho c0 A0)) at the peak position
+    c0, A0 = out["viscous"]["c0"], np.pi * p["r0"] ** 2
+    rate = (p["zeta"] + 2) * np.pi * p["mu"] / (p["rho"] * c0 * A0)
+    xs = np.array(out["viscous"]["peak_x_m"])
+    ratio = np.array(out["viscous"]["peak_Pa"]) / np.array(out["inviscid"]["peak_Pa"])
+    theory = np.exp(-rate * xs)
+    out["eq15"] = {"rate_per_m": float(rate), "x_m": xs.tolist(), "ratio": ratio.tolist(), "theory": theory.tolist(),
+                   "diff_pct": (100 * (ratio / theory - 1)).tolist()}
+    return out

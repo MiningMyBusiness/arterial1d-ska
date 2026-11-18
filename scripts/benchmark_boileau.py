@@ -5,6 +5,7 @@
     python scripts/benchmark_boileau.py thoracic_aorta
     python scripts/benchmark_boileau.py bifurcation
     python scripts/benchmark_boileau.py network37      # case 5, against the in-vitro measurements
+    python scripts/benchmark_boileau.py single_pulse --dx 0.00125   # case 1 (see benchmarks.single_pulse)
 
 For each published site: the paper's error measures (Eqs. 10-13, %) for arterial1d against 3-D,
 next to the published 1-D schemes recomputed the same way, then arterial1d against each scheme.
@@ -19,13 +20,30 @@ ROWS = [(q, m) for m in ("RMS", "MAX", "SYS", "DIAS") for q in ("P", "Q", "dr", 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("case", choices=list(benchmarks.CASES) + ["network37"])
+    ap.add_argument("case", choices=list(benchmarks.CASES) + ["network37", "single_pulse"])
     ap.add_argument("--data", help=f"supplementary data folder (default: ${benchmarks.ENV})")
     ap.add_argument("--dx", type=float, default=0.0025)
     ap.add_argument("--cycles", type=int, help="default: per case")
     ap.add_argument("--junction", choices=["total", "static"], default="total")
+    ap.add_argument("--cfl", type=float, default=0.8, help="single_pulse only")
+    ap.add_argument("--c-headroom", type=float, default=1.6, help="single_pulse only")
     ap.add_argument("--json")
     a = ap.parse_args()
+    if a.case == "single_pulse":
+        o = benchmarks.single_pulse(a.data, dx=a.dx, cfl=a.cfl, c_headroom=a.c_headroom)
+        print(f"case 1, single pulse: dx = {a.dx} m, Courant number {o['courant']:.2f}")
+        for kind in ("inviscid", "viscous"):
+            k = o[kind]
+            print(f"\n{kind}: c0 {k['c0']:.3f} m/s, peak travels at {k['peak_speed_m_s']:.3f} m/s, "
+                  f"peak change 0.1 -> 1.5 s {k['peak_change_pct']:+.2f}%")
+            print("  profile RMS difference, % of peak, worst over t = 0.1..1.5 s:  " +
+                  "  ".join(f"{s} {max(v['profile_rms_pct_of_peak']):.2f}" for s, v in k["vs_schemes"].items()))
+        print("\nEq. 15, viscous/inviscid peak ratio vs exp(-(zeta+2) pi mu x / (rho c0 A0)), % difference at the "
+              "peak positions: " + " ".join(f"{d:+.2f}" for d in o["eq15"]["diff_pct"]))
+        if a.json:
+            with open(a.json, "w") as f:
+                json.dump(o, f, indent=2)
+        return
     if a.case == "network37":
         o = benchmarks.network37(a.data, dx=a.dx, cycles=a.cycles or 30, junction=a.junction)
         ref, key = "in vitro", "vs_exp"

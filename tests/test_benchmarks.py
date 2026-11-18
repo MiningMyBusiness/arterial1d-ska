@@ -131,3 +131,19 @@ def test_network37_against_in_vitro_and_published_fvm(case5):
         assert so["vs_exp"]["P"]["RMS"] < vals[0] + 0.3, site
         assert so["vs_exp"]["Q"]["RMS"] < vals[4] + 1.0, site
         assert so["vs_schemes"]["FVM"]["P"]["RMS"] < 0.3 and so["vs_schemes"]["FVM"]["Q"]["RMS"] < 0.6, site
+
+
+@needs_data
+@pytest.mark.parametrize("dx,cfl,headroom", [(0.00125, 0.8, 1.6), (0.0025, 0.95, 1.05)])
+def test_single_pulse(dx, cfl, headroom):
+    """Case 1. Inviscid peak changes by less than 0.9% over the tube (the paper's statement for the
+    published schemes); viscous/inviscid peak ratio within 1% of Eq. 15 (published schemes: 0.2-0.8%);
+    peak travels at c0 = 6.17 m/s; profiles within 1% (of peak, RMS) of FVM, FEM, DCG, McC and STM.
+    Default time step at dx = 1.25 mm, or Courant ~0.9 at dx = 2.5 mm (see benchmarks.single_pulse)."""
+    o = benchmarks.single_pulse(ROOT, dx=dx, cfl=cfl, c_headroom=headroom)
+    assert abs(o["inviscid"]["peak_change_pct"]) < 0.9
+    assert max(abs(d) for d in o["eq15"]["diff_pct"]) < 1.0
+    assert o["inviscid"]["peak_speed_m_s"] == pytest.approx(6.17, rel=0.005)
+    for kind in ("inviscid", "viscous"):
+        for s in ("FVM", "FEM", "DCG", "McC", "STM"):
+            assert max(o[kind]["vs_schemes"][s]["profile_rms_pct_of_peak"]) < 1.0, (kind, s)
