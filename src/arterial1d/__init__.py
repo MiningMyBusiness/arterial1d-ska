@@ -12,7 +12,7 @@ __version__ = "0.1.0.dev0"
 
 
 def adan56_path():
-    """Path to the bundled ADAN56 network file (from openBF, Apache-2.0)."""
+    """Path to the bundled ADAN56 network file (from openBF; Apache-2.0, see NOTICE)."""
     return _files(__package__) / "data" / "adan56" / "adan56.yaml"
 
 

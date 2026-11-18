@@ -1,6 +1,7 @@
-# arterial1d
+# arterial1d-ska
 
-One-dimensional blood flow in trees of elastic arteries, in Python with Numba.
+`arterial1d`: one-dimensional blood flow in trees of elastic arteries, in Python with Numba.
+Source-available for noncommercial use (PolyForm Noncommercial 1.0.0; see *Licence*).
 
 arterial1d is an independent implementation, compatible with the network file format of
 [openBF](https://github.com/INSIGNEO/openBF). It solves the same family of equations with a
@@ -121,5 +122,11 @@ network and benchmark:
 
 ## Licence
 
-Apache-2.0 (`LICENSE`). The ADAN56 network and inflow files in `src/arterial1d/data/adan56/` are
-from openBF, also Apache-2.0; see `NOTICE`.
+[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)
+(`LICENSE`): free for noncommercial purposes, including personal research and use by
+educational, public-research, charitable and government institutions. Commercial use needs a
+separate licence; contact the author through GitHub.
+
+This is not an OSI open-source licence. The ADAN56 network and inflow files in
+`src/arterial1d/data/adan56/` are from openBF and remain under the Apache License 2.0
+(`src/arterial1d/data/adan56/LICENSE-Apache-2.0`); see `NOTICE`.

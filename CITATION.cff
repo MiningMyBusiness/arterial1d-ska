@@ -1,8 +1,9 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "arterial1d: one-dimensional blood flow in elastic arterial trees"
+title: "arterial1d-ska: one-dimensional blood flow in elastic arterial trees"
 version: 0.1.0.dev0
-license: Apache-2.0
+license: PolyForm-Noncommercial-1.0.0
+repository-code: "https://github.com/MiningMyBusiness/arterial1d-ska"
 authors:
   - family-names: Bhattacharyya
     given-names: Kiran
