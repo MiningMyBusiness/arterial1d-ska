@@ -16,3 +16,4 @@ jobs:
       - run: pip install -e ".[test]"
       # The published-benchmark regression is skipped here: its reference data cannot be redistributed.
       - run: pytest
+      - run: python examples/custom_network.py

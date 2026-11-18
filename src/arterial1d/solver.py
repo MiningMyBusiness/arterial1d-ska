@@ -25,6 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
+import warnings
+
 import numpy as np
 from numba import njit
 
@@ -69,6 +71,7 @@ class Result:
     volume_out_by_outlet: Dict[str, np.ndarray]
     stored_volume: np.ndarray             # m^3 in the 1D vessels at the end of each cycle
     finite: bool
+    max_courant: float = float("nan")     # max over nodes and steps of (|u| + c) dt / dx (stable below 1)
 
 
 @njit(cache=True)
@@ -80,7 +83,7 @@ def _area(P, A0, beta):
 @njit(cache=True)
 def _run(A, Q, A0, beta, start, end, dxv, parent, daughters, n_daughters, is_terminal,
          R1, R2, C, Pc, P_ven, q_in, dt, rho, K_R, alpha, probes, rec_every, steps_per_cycle,
-         total_pressure):
+         total_pressure, cb, inv_dxn):
     n_v = len(start)
     n_steps = len(q_in)
     n_rec = n_steps // rec_every
@@ -98,8 +101,13 @@ def _run(A, Q, A0, beta, start, end, dxv, parent, daughters, n_daughters, is_ter
     sqA0 = np.sqrt(A0)
     off_d = np.zeros(MAX_DAUGHTERS)
     ok = True
+    courant = 0.0
     for k in range(n_steps):
         P = beta * (np.sqrt(A) - sqA0)
+        for i in range(len(A)):                 # (|u| + c) dt / dx, c = sqrt(beta/(2 rho)) A^(1/4)
+            cr = (abs(Q[i] / A[i]) + cb[i] * np.sqrt(np.sqrt(A[i]))) * dt * inv_dxn[i]
+            if cr > courant:
+                courant = cr
         # ---- interior: MacCormack, direction alternating each step -------------------------
         fwd = (k % 2 == 0)
         for v in range(n_v):
@@ -271,22 +279,27 @@ def _run(A, Q, A0, beta, start, end, dxv, parent, daughters, n_daughters, is_ter
         if not (np.isfinite(A[0]) and np.isfinite(Q[0]) and np.isfinite(A[len(A) - 1])) or np.min(A) <= 0.0:
             ok = False
             break
-    return recP, recA, recQ, vol_in, vol_out, stored, ok
+    return recP, recA, recQ, vol_in, vol_out, stored, ok, courant
 
 
 class Network:
     """A tree of tapered vessels with a flow inlet at the root and Windkessel outlets."""
 
     def __init__(self, vessels: List[Vessel], rho=1060.0, mu=0.004, alpha=1.0, friction_coeff_pi=8.0,
-                 dx=0.005, cfl=0.8, P_ven=0.0, P_ref=0.0, min_nodes=6, c_headroom=1.6,
+                 dx=0.0025, cfl=0.9, P_ven=0.0, P_ref=0.0, min_nodes=6, c_headroom=1.25,
                  total_pressure=True):
         """vessels: root first, every vessel after its parent. Units SI.
 
         friction_coeff_pi: K_R in units of pi mu / rho, 2 (gamma + 2) for profile exponent gamma.
         dx: target node spacing [m]; each vessel gets at least min_nodes nodes spanning its length.
+            The single time step is set by the smallest spacing in the network (often a short
+            vessel), so the Courant number elsewhere is lower; see README (case 1) for its effect.
         cfl, c_headroom: the fixed time step is cfl * dx / (c_headroom * c0), with c0 the wave
             speed at the reference area, so that the CFL condition holds while c rises with
-            pressure (c ~ A^(1/4)).
+            pressure (c ~ A^(1/4)) and flow speed adds to it. The defaults give a Courant number of
+            about 0.72 at rest; on ADAN56 the maximum reached is 1.28x the resting value (0.92).
+            Lower Courant numbers damp short waveform features more (Boileau case 1; README).
+            Result.max_courant reports the maximum reached; above 1 simulate() warns.
         total_pressure: junctions conserve P + rho u^2 / 2 (True) or static pressure P (False).
         P_ref is the pressure at which the vessels have their reference areas A0 (0 for
         unstressed radii, the diastolic pressure for ADAN56). Pressures passed in and reported
@@ -384,10 +397,15 @@ class Network:
             A, Q, Pc = state["A"].copy(), state["Q"].copy(), state["Pc"].copy()
         names = list(probes)
         pidx = np.array([probes[n] for n in names], np.int64)
-        recP, recA, recQ, vin, vout, stored, ok = _run(
+        cb = np.sqrt(self.beta / (2 * self.rho))
+        inv_dxn = np.repeat(1.0 / self.dxv, self.end - self.start)
+        recP, recA, recQ, vin, vout, stored, ok, courant = _run(
             A, Q, self.A0, self.beta, self.start, self.end, self.dxv, self.parent, self.daughters,
             self.n_daughters, self.is_terminal, self.R1, self.R2, self.C, Pc, self.P_ven - self.P_ref, qin, dt,
-            self.rho, self.K_R, self.alpha, pidx, rec_every, spc, self.total_pressure)
+            self.rho, self.K_R, self.alpha, pidx, rec_every, spc, self.total_pressure, cb, inv_dxn)
+        if courant > 1.0:
+            warnings.warn(f"Courant number reached {courant:.2f} (> 1): the run is unreliable; "
+                          f"increase c_headroom or reduce cfl", RuntimeWarning, stacklevel=2)
         self.state = {"A": A, "Q": Q, "Pc": Pc}
         t = (np.arange(recP.shape[1]) + 1) * rec_dt
         return Result(
@@ -395,4 +413,4 @@ class Network:
             Q={n: recQ[i] for i, n in enumerate(names)}, dt=dt, volume_in=vin,
             volume_out=vout[self.is_terminal].sum(axis=0),
             volume_out_by_outlet={v.name: vout[i] for i, v in enumerate(self.vessels) if self.is_terminal[i]},
-            stored_volume=stored, finite=bool(ok))
+            stored_volume=stored, finite=bool(ok), max_courant=float(courant))

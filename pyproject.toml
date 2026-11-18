@@ -19,6 +19,7 @@ classifiers = [
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+figures = ["matplotlib>=3.5"]
 
 [tool.setuptools.dynamic]
 version = {attr = "arterial1d.__version__"}

@@ -8,31 +8,40 @@ arterial1d is an independent implementation, compatible with the network file fo
 different numerical scheme (two-step MacCormack finite differences; openBF uses MUSCL finite
 volumes). It is not a port of openBF.
 
-> **Status: pre-release.** Run against all six benchmarks of Boileau et al. (2015): case 1 (single
-> pulse), cases 2–4 (common carotid, upper thoracic aorta, aortic bifurcation; against 3-D), case 5
-> (37-artery network; against in-vitro measurements) and case 6 (ADAN56).
+Version 0.1.0. Validated against all six benchmark cases of Boileau et al. (2015): a single pulse
+in a long tube, three cases against 3-D fluid–structure solutions, a 37-artery network against
+in-vitro measurements, and the 56-artery ADAN56 network (see *Validation*).
 
 ## Install
 
 ```bash
-pip install -e ".[test]"     # Python >= 3.10; numpy, numba, pyyaml
-pytest                       # physics tests; the published-benchmark test skips without its data
+pip install "git+https://github.com/MiningMyBusiness/arterial1d-ska.git"     # Python >= 3.10
 ```
+
+or, from a clone, `pip install -e ".[test]"` and `pytest` (the published-benchmark tests skip
+without their data). Dependencies: numpy, numba, pyyaml; matplotlib for the figures
+(`pip install "arterial1d[figures]"` or `pip install -e ".[figures]"`).
 
 ## Use
 
 ```python
 import arterial1d as a1
 
-net = a1.load_network(a1.adan56_path(), dx=0.0025)             # any openBF YAML within the supported subset
+net = a1.load_network(a1.adan56_path())                         # any openBF YAML within the supported subset
 q_in, period = a1.load_inlet(a1.openbf.inlet_path(a1.adan56_path()))
 probes = {"arch": net.node("aortic_arch_I", 0.5), "wrist": net.node("radial_L", 0.95)}
-res = net.simulate(q_in, period, n_cycles=15, probes=probes, P_init=net.P_ref)
+res = net.simulate(q_in, period, n_cycles=10, probes=probes, P_init=net.P_ref)
 res.P["wrist"] / a1.MMHG      # pressure [mmHg] at 1 kHz; also res.Q, res.A, per-cycle volumes
+res.max_courant               # largest Courant number reached (must stay below 1)
 ```
 
-Networks can also be built directly from `Vessel` objects (radii at both ends, linear or
-exponential taper, stiffness from a Young's modulus or from end wave speeds).
+Examples:
+
+- [`examples/quickstart_adan56.py`](examples/quickstart_adan56.py): ADAN56 with its benchmark
+  inflow; prints pressures at four sites and plots them.
+- [`examples/custom_network.py`](examples/custom_network.py): an aortic bifurcation built in code
+  from `Vessel` objects (radii at both ends, linear or exponential taper, stiffness from a Young's
+  modulus and wall thickness or from end wave speeds; Windkessel or resistive outlets).
 
 ## Model
 
@@ -58,8 +67,13 @@ Per vessel, with area A, flow Q, pressure P:
     gives 4.2% worst-case error against 1.1% for total pressure);
   - outlets: three-element Windkessel R1–C–R2, or a pure resistance R1 to a fixed outflow pressure;
     a pure resistance matched to the characteristic impedance is a (linearly) non-reflecting outlet.
-- **Time step:** fixed for a run, from the CFL condition at the reference wave speed with headroom
-  for its rise with pressure.
+- **Time step:** fixed for a run: `cfl * dx / (c_headroom * c0)` over the network, with c0 the wave
+  speed at the reference area, rounded down to divide the recording interval. Defaults `cfl = 0.9`,
+  `c_headroom = 1.25`, `dx = 2.5 mm`. The headroom covers the rise of the wave speed with pressure
+  and the flow speed; on ADAN56 the largest Courant number reached is 0.91. Every run reports it
+  (`Result.max_courant`) and warns above 1. The smallest node spacing in the network (often a
+  short vessel) sets the step, so most vessels run at a lower Courant number; MacCormack damps
+  short waveform features more at low Courant numbers (case 1 below).
 
 ## Validation
 
@@ -70,18 +84,19 @@ its Eq. 15.
 
 | arterial1d | Courant number | inviscid peak change | viscous / Eq. 15 | profile RMS vs FVM, % of peak |
 | --- | --- | --- | --- | --- |
-| dx = 1.25 mm, default time step | 0.50 | +0.20% | +0.38 to +0.45% | 0.26 |
+| **dx = 2.5 mm, defaults** | **0.71** | **−0.56%** | **+0.30 to +0.42%** | **0.65** |
+| dx = 1.25 mm, defaults | 0.72 | +0.15% | +0.38 to +0.46% | 0.17 |
 | dx = 2.5 mm, cfl 0.95, c_headroom 1.05 | 0.88 | +0.01% | +0.36 to +0.41% | 0.30 |
-| dx = 2.5 mm, default time step | 0.49 | −1.32% | +0.35 to +0.41% | 0.97 |
-| dx = 5 mm, default time step | 0.49 | −11.0% | +0.28 to +0.39% | 3.0 |
+| dx = 5 mm, defaults | 0.69 | −7.9% | +0.24 to +0.37% | 2.3 |
+| dx = 2.5 mm, cfl 0.8, c_headroom 1.6 (before 0.1.0) | 0.49 | −1.32% | +0.35 to +0.41% | 0.97 |
 
 The published schemes differ from Eq. 15 by 0.2–0.8%. The peak travels at 6.17 m/s, the tube-law
-wave speed. **Numerical damping of short features depends on the Courant number**: the default time
-step leaves headroom for the wave speed to rise by 60% with pressure, which puts a small pulse at a
-Courant number near 0.5, where MacCormack damps short wavelengths most. For waveforms with sharp
-features, refine dx or reduce `c_headroom` to what the pressure range needs. On ADAN56 the
-Courant number (0.47 vs 0.71) changes nothing: median and worst errors and the distal timing lag
-stay the same.
+wave speed. **Numerical damping of short features depends on the grid and the Courant number.** The
+pulse here is about 31 cm long; at dx = 5 mm it loses 8% of its peak over 8.6 m. For waveforms with
+sharp features use dx ≤ 2.5 mm. On ADAN56, raising the Courant number (0.47 to 0.71) changes neither
+the errors nor the distal timing lag below.
+
+![Case 1](docs/figures/case1_single_pulse.png)
 
 Error measures and comparison protocol are those of Boileau et al. (2015). The benchmark code
 reproduces the paper's published FVM errors against 3-D (Tables IV, VI and VIII) from the published
@@ -96,7 +111,7 @@ the same values to 0.01).
 
 | RMS error vs 3-D, % | P | Q | dr | dP |
 | --- | --- | --- | --- | --- |
-| **arterial1d** | **0.24** | **0.28** | **1.00** | **4.26** |
+| **arterial1d** | **0.24** | **0.28** | **1.01** | **4.26** |
 | six published schemes (Table IV) | 0.20–0.28 | 0.26–0.39 | 0.96–1.07 | 4.21–4.47 |
 
 On all 16 measures (RMS, maximum, systolic, diastolic for the four quantities) arterial1d falls
@@ -121,11 +136,13 @@ DCG, McC and STM by 0.05–0.09% RMS pressure.
 
 | RMS error vs 3-D, % | aorta mid P / Q / dr | aorta end P / Q / dr | iliac mid P / Q / dr |
 | --- | --- | --- | --- |
-| **arterial1d** | **0.37 / 0.82 / 2.47** | **0.42 / 1.12 / 4.06** | **0.44 / 0.65 / 4.29** |
+| **arterial1d** | **0.38 / 0.82 / 2.47** | **0.42 / 1.12 / 4.06** | **0.45 / 0.65 / 4.29** |
 | published (Table VIII) | 0.37–0.40 / 0.71–0.89 / 2.43–2.55 | 0.41–0.44 / 0.46–1.20 / 4.02–4.14 | 0.44–0.47 / 0.65–0.92 / 4.26–4.35 |
 
 All 36 measures fall within the published range, and arterial1d differs from the published FEM
 and MacCormack solutions by about 0.01% RMS pressure at all three sites.
+
+![Cases 2-4](docs/figures/cases2-4_vs_3d.png)
 
 **Case 5, 37-artery in-vitro network** (Matthys et al. 2007: silicone tubes, 37 segments of which
 22 tapered, 16 resistive outlets; reference: measured pressure and flow at 8 sites). The paper does
@@ -134,13 +151,15 @@ FVM output identifies all eight unambiguously as segment midpoints (10, 17, 11, 
 
 | RMS error vs in vitro, % | pressure, 8 sites | flow, 8 sites |
 | --- | --- | --- |
-| **arterial1d** | **1.87–3.72** | **9.3–25.8** |
+| **arterial1d** | **1.86–3.73** | **9.3–25.8** |
 | published FVM (Table X) | 1.87–3.75 | 9.2–25.4 |
 
 58 of 64 measures fall within the published schemes' range; the six outside are flow extremes and
 the thoracic aorta's RMS flow, within 1.2 points of the range. arterial1d differs from the published
-FVM solution by 0.06–0.15% RMS pressure and 0.16–0.35% RMS flow, with no timing lag (≤ 0.2 ms) at
+FVM solution by 0.05–0.14% RMS pressure and 0.16–0.35% RMS flow, with no timing lag (≤ 0.2 ms) at
 the distal sites. Results are grid-converged at dx = 2.5 mm (1.25 mm changes them by ≤ 0.02).
+
+![Case 5](docs/figures/case5_in_vitro.png)
 
 Cases 2–5 show no timing lag against FVM (case 3: −0.3 ms over 24 cm; case 5: ≤ 0.2 ms through a
 tapered tree). Reproduce with
@@ -153,7 +172,7 @@ difference as % of the reference pulse pressure.
 
 | Solution vs published FVM | median | worst site |
 | --- | --- | --- |
-| **arterial1d** | **0.51%** | **1.09%** (anterior tibial) |
+| **arterial1d** | **0.50%** | **1.10%** (anterior tibial) |
 | published FEM | 0.15% | 0.23% |
 | published DCG | 0.12% | 0.18% |
 | published LCG | 0.28% | 0.51% |
@@ -168,7 +187,10 @@ later than the FVM solution's at the anterior tibial, and this lag does not shri
 own `mesh.txt` to 2e-8; wall stiffness (per-vessel E with the thickness law) and the momentum-flux
 coefficient are the remaining suspects.
 
-Reproduce with `python scripts/benchmark_adan56.py --data <folder>` (see *Reference data*).
+![ADAN56](docs/figures/case6_adan56.png)
+
+Reproduce with `python scripts/benchmark_adan56.py --data <folder>` (see *Reference data*). All
+figures: `python scripts/make_figures.py --data <folder>`.
 
 
 ## Limitations
@@ -179,11 +201,10 @@ Reproduce with `python scripts/benchmark_adan56.py --data <folder>` (see *Refere
   resistance (no reflection-coefficient outlets).
 - A subset of openBF's YAML options. The reader raises `UnsupportedFeature` for anything else
   rather than ignoring it.
-- Fixed time step per run, set from the reference wave speed with headroom (`c_headroom`, default
-  1.6) for its rise with pressure; no run-time check of the Courant number. The default damps
-  short pulses noticeably at dx >= 2.5 mm (see case 1).
+- One fixed time step for the whole network, set by its smallest node spacing; no local time
+  stepping. Runs whose pressures raise the wave speed beyond the headroom warn (Courant number > 1).
 - No speed comparison with other solvers has been made on a matched test. For scale, ADAN56 at
-  dx = 5 mm runs in about 0.1 s per cardiac cycle on one laptop core.
+  the default dx = 2.5 mm runs in about 0.16 s per cardiac cycle on one core.
 
 ## Reference data
 

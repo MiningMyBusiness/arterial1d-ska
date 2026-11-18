@@ -134,12 +134,13 @@ def test_network37_against_in_vitro_and_published_fvm(case5):
 
 
 @needs_data
-@pytest.mark.parametrize("dx,cfl,headroom", [(0.00125, 0.8, 1.6), (0.0025, 0.95, 1.05)])
+@pytest.mark.parametrize("dx,cfl,headroom", [(0.0025, 0.9, 1.25), (0.00125, 0.8, 1.6), (0.0025, 0.95, 1.05)])
 def test_single_pulse(dx, cfl, headroom):
     """Case 1. Inviscid peak changes by less than 0.9% over the tube (the paper's statement for the
     published schemes); viscous/inviscid peak ratio within 1% of Eq. 15 (published schemes: 0.2-0.8%);
     peak travels at c0 = 6.17 m/s; profiles within 1% (of peak, RMS) of FVM, FEM, DCG, McC and STM.
-    Default time step at dx = 1.25 mm, or Courant ~0.9 at dx = 2.5 mm (see benchmarks.single_pulse)."""
+    Package defaults at dx = 2.5 mm; the earlier, more conservative time step at 1.25 mm; Courant ~0.9
+    at 2.5 mm (see benchmarks.single_pulse)."""
     o = benchmarks.single_pulse(ROOT, dx=dx, cfl=cfl, c_headroom=headroom)
     assert abs(o["inviscid"]["peak_change_pct"]) < 0.9
     assert max(abs(d) for d in o["eq15"]["diff_pct"]) < 1.0

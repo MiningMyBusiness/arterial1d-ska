@@ -1,7 +1,17 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "arterial1d-ska: one-dimensional blood flow in elastic arterial trees"
-version: 0.1.0.dev0
+abstract: >-
+  An independent Python/Numba solver for one-dimensional blood flow in elastic arterial trees
+  (two-step MacCormack scheme), compatible with openBF's network file format, validated against
+  the six benchmark cases of Boileau et al. (2015).
+keywords:
+  - haemodynamics
+  - one-dimensional blood flow
+  - pulse wave propagation
+  - arterial network
+version: 0.1.0
+date-released: 2026-11-18
 license: PolyForm-Noncommercial-1.0.0
 repository-code: "https://github.com/MiningMyBusiness/arterial1d-ska"
 authors:

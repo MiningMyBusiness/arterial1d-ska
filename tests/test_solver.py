@@ -134,3 +134,17 @@ def test_matched_resistance_outlet_absorbs_a_pulse():
 def test_windkessel_needs_both_r2_and_c():
     with pytest.raises(AssertionError):
         Network([Vessel("v", 0.1, 3e-3, 3e-3, None, c_in=6.0, c_out=6.0, R2=1e9)])
+
+
+def test_max_courant_is_reported_and_below_one_with_defaults(adan56):
+    q, period = a1.load_inlet(a1.openbf.inlet_path(ADAN56))
+    r = adan56.simulate(q, period, 2, {"arch": adan56.node("aortic_arch_I", 0.5)}, P_init=adan56.P_ref)
+    rest = r.dt * np.max(adan56.wave_speed0() * np.repeat(1 / adan56.dxv, adan56.end - adan56.start))
+    assert rest < r.max_courant < 1.0          # flow and pressure raise it above the resting value
+
+
+def test_warns_when_the_courant_number_exceeds_one():
+    # dt_max = 1.67 ms is rounded down to the 1 ms recording interval: Courant 6 * 1e-3 / 0.005 = 1.2
+    net = Network([Vessel("tube", 1.0, 0.01, 0.01, None, c_in=6.0, c_out=6.0)], mu=0.0, dx=0.005, cfl=1.0, c_headroom=0.5)
+    with pytest.warns(RuntimeWarning, match="Courant"):
+        net.simulate(_pulse, 0.2, 1, {"mid": net.node("tube", 0.5)}, P_init=0.0)

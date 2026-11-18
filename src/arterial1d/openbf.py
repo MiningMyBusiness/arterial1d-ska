@@ -46,8 +46,8 @@ def read_config(path: PathLike) -> dict:
         return yaml.safe_load(f)
 
 
-def load_network(path: PathLike, *, dx: float = 0.005, cfl: float = 0.8, junction: str = "total",
-                 min_nodes: int = 3, alpha: float = 1.0) -> Network:
+def load_network(path: PathLike, *, dx: float = 0.0025, cfl: float = 0.9, c_headroom: float = 1.25,
+                 junction: str = "total", min_nodes: int = 3, alpha: float = 1.0) -> Network:
     """Build a Network from an openBF YAML file.
 
     dx: target node spacing [m]. junction: "total" (continuity of P + rho u^2/2, the default,
@@ -117,7 +117,7 @@ def load_network(path: PathLike, *, dx: float = 0.005, cfl: float = 0.8, junctio
         vessels.append(v)
     blood = cfg["blood"]
     return Network(vessels, rho=float(blood["rho"]), mu=float(blood["mu"]), alpha=alpha,
-                   friction_coeff_pi=2.0 * (gammas.pop() + 2), dx=dx, cfl=cfl, P_ven=0.0,
+                   friction_coeff_pi=2.0 * (gammas.pop() + 2), dx=dx, cfl=cfl, c_headroom=c_headroom, P_ven=0.0,
                    P_ref=p_ext.pop(), min_nodes=min_nodes, total_pressure=(junction == "total"))
 
 

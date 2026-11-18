@@ -47,7 +47,7 @@ def _last_cycle(path: Path, period: float, scale: float):
 
 
 def adan56(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: int = 15,
-           junction: str = "total", reference: str = "FVM") -> Dict[str, dict]:
+           junction: str = "total", reference: str = "FVM", traces: bool = False) -> Dict[str, dict]:
     """Run ADAN56 with the benchmark inflow and compare mid-vessel pressure and flow over the last
     cycle with a published scheme (FVM by default, the reference used in the paper).
 
@@ -81,6 +81,8 @@ def adan56(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: in
                   "Q_rms_over_peak": float(np.sqrt(np.mean((f - qr) ** 2)) / np.abs(qr).max()),
                   "P_mmHg": tuple(float(x) / MMHG for x in (p.min(), p.mean(), p.max())),
                   "P_ref_mmHg": tuple(float(x) / MMHG for x in (pr.min(), pr.mean(), pr.max()))}
+        if traces:
+            out[a]["trace"] = {"t": tg, "P": p, "P_ref": pr, "Q": f, "Q_ref": qr}
     return out
 
 
@@ -142,7 +144,7 @@ def _published_cycle(path, t0, period):
 
 
 def run_case(case: str, root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: Optional[int] = None,
-             junction: str = "total") -> dict:
+             junction: str = "total", traces: bool = False) -> dict:
     """Run case 2, 3 or 4 and compare, at each published site, P, Q, dr (and the inlet-outlet
     pressure drop for single vessels) with the 3-D solution and with the six published 1-D
     schemes, using the paper's error measures (%)."""
@@ -187,6 +189,11 @@ def run_case(case: str, root: Optional[os.PathLike] = None, *, dx: float = 0.002
             tp = tp + win_phase                            # published window start -> inflow phase
             so["schemes_vs_3D"][s] = all_errors(ref3, {k: on_times(t3, tp, y, period) for k, y in pub.items()})
             so["vs_schemes"][s] = all_errors(pub, {k: on_times(tp, t, y, period) for k, y in mine.items() if k in pub})
+            if traces and s == "FVM":
+                so.setdefault("trace", {})["FVM"] = {k: on_times(t3, tp, y, period) for k, y in pub.items()}
+        if traces:
+            so.setdefault("trace", {}).update({"t": d3[:, 0], "ref": ref3,
+                                              "mine": {k: on_times(t3, t, y, period) for k, y in mine.items()}})
         out["sites"][site] = so
     return out
 
@@ -237,7 +244,7 @@ def _time_windows(path):
 
 
 def network37(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: int = 30,
-              junction: str = "total") -> dict:
+              junction: str = "total", traces: bool = False) -> dict:
     """Run case 5 and compare P and Q at the eight measurement sites with the in-vitro data and
     with the six published schemes (the paper's error measures, %)."""
     r = reference_root(root)
@@ -279,6 +286,11 @@ def network37(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles:
             so["vs_schemes"][s] = all_errors({"P": P[-n:, col] * 1e3, "Q": Q[-n:, col] * 1e-6},
                                              {"P": on_times(tp, t, res.P[nm][-n:], period),
                                               "Q": on_times(tp, t, res.Q[nm][-n:], period)})
+        if traces:
+            P, Q = pub["FVM"]
+            so["trace"] = {"t": ep[keep, 0], "ref": ref, "mine": mine,
+                           "FVM": {"P": np.interp(te, P[:, 0], P[:, j + 1] * 1e3),
+                                   "Q": np.interp(te, Q[:, 0], Q[:, j + 1] * 1e-6)}}
         out["sites"][nm] = so
     return out
 
@@ -312,15 +324,16 @@ def _pulse_run(viscous: bool, dx: float, cfl: float, c_headroom: float):
     return x, prof, float(net.wave_speed0()[0]), float(res.dt * net.wave_speed0()[0] / net.dxv[0])
 
 
-def single_pulse(root: Optional[os.PathLike] = None, *, dx: float = 0.00125, cfl: float = 0.8,
-                 c_headroom: float = 1.6) -> dict:
+def single_pulse(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cfl: float = 0.9,
+                 c_headroom: float = 1.25, traces: bool = False) -> dict:
     """Case 1: profiles against the six published schemes, peak decay, and Eq. 15.
 
     MacCormack's numerical damping of this short pulse (wavelength ~31 cm) depends on the Courant
-    number c0 dt/dx. The Network defaults (cfl 0.8, c_headroom 1.6) give 0.49: the inviscid peak
-    then falls 11% (dx 5 mm), 1.3% (2.5 mm) or rises 0.2% (1.25 mm) over 1.4 s. At Courant ~0.9
-    (cfl 0.95, c_headroom 1.05; safe here because the pulse barely changes c) it falls 2.9% at 5 mm
-    and 0.0% at 2.5 mm. The paper's criterion is a decrease of less than 0.9%."""
+    number c0 dt/dx. With the 0.1.0 defaults (cfl 0.9, c_headroom 1.25; Courant 0.71) the inviscid
+    peak falls 7.9% (dx 5 mm), 0.56% (2.5 mm) or rises 0.15% (1.25 mm) over 1.4 s. With the earlier
+    cfl 0.8, c_headroom 1.6 (Courant 0.49): 11%, 1.3%, +0.2%. At Courant ~0.9 (cfl 0.95,
+    c_headroom 1.05; safe here because the pulse barely changes c): 2.9% at 5 mm, 0.0% at 2.5 mm.
+    The paper's criterion is a decrease of less than 0.9%."""
     r = reference_root(root)
     if r is None:
         raise FileNotFoundError(f"Boileau et al. 2015 supplementary data not found; set {ENV}")
@@ -346,6 +359,9 @@ def single_pulse(root: Optional[os.PathLike] = None, *, dx: float = 0.00125, cfl
                 rms.append(100 * float(np.sqrt(np.mean((mine - ref) ** 2)) / ref.max()))
                 pk.append(100 * float(prof[t].max() / ref.max() - 1))
             k["vs_schemes"][s] = {"profile_rms_pct_of_peak": rms, "peak_diff_pct": pk}
+            if traces and s == "FVM":
+                k["trace"] = {"x": x, "P": prof, "x_FVM": d[:, 0], "P_FVM": {t: d[:, j + 1] * 1e3
+                                                                          for j, t in enumerate(PULSE_TIMES)}}
         out[kind] = k
     # Eq. 15: viscous peak / inviscid peak = exp(-(zeta + 2) pi mu x / (rho c0 A0)) at the peak position
     c0, A0 = out["viscous"]["c0"], np.pi * p["r0"] ** 2

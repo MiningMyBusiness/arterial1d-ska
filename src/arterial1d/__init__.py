@@ -8,7 +8,7 @@ from importlib.resources import files as _files
 from .openbf import UnsupportedFeature, load_inlet, load_network
 from .solver import MMHG, Network, Result, Vessel, wall_thickness
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
 
 
 def adan56_path():

@@ -5,7 +5,7 @@
     python scripts/benchmark_boileau.py thoracic_aorta
     python scripts/benchmark_boileau.py bifurcation
     python scripts/benchmark_boileau.py network37      # case 5, against the in-vitro measurements
-    python scripts/benchmark_boileau.py single_pulse --dx 0.00125   # case 1 (see benchmarks.single_pulse)
+    python scripts/benchmark_boileau.py single_pulse   # case 1 (see benchmarks.single_pulse)
 
 For each published site: the paper's error measures (Eqs. 10-13, %) for arterial1d against 3-D,
 next to the published 1-D schemes recomputed the same way, then arterial1d against each scheme.
@@ -25,8 +25,8 @@ def main():
     ap.add_argument("--dx", type=float, default=0.0025)
     ap.add_argument("--cycles", type=int, help="default: per case")
     ap.add_argument("--junction", choices=["total", "static"], default="total")
-    ap.add_argument("--cfl", type=float, default=0.8, help="single_pulse only")
-    ap.add_argument("--c-headroom", type=float, default=1.6, help="single_pulse only")
+    ap.add_argument("--cfl", type=float, default=0.9, help="single_pulse only")
+    ap.add_argument("--c-headroom", type=float, default=1.25, help="single_pulse only")
     ap.add_argument("--json")
     a = ap.parse_args()
     if a.case == "single_pulse":
