@@ -93,3 +93,41 @@ def test_bifurcation_against_3d_and_published_schemes(cases_3_4):
         assert v["P"]["RMS"] < p and v["Q"]["RMS"] < q and v["dr"]["RMS"] < dr, site
         assert so["vs_schemes"]["McC"]["P"]["RMS"] < 0.05 and so["vs_schemes"]["FEM"]["P"]["RMS"] < 0.05, site
     assert o["periodicity"] < 1e-6
+
+
+# Table X (Boileau et al. 2015): FVM errors vs in vitro (RMS P, MAX P, SYS P, DIAS P, RMS Q, MAX Q, SYS Q, DIAS Q)
+TABLE_X_FVM = {"AorticArchII": (1.87, 3.72, -1.46, -0.30, 12.11, 29.13, 8.75, -17.93),
+               "ThoracicAortaII": (2.44, 5.57, -1.03, 1.81, 25.43, 65.69, 61.59, -39.26),
+               "LSubclavianI": (3.12, 6.29, -3.96, -3.93, 14.24, 38.12, -2.25, -11.05),
+               "RIliacFemoralII": (3.75, 9.09, -2.26, -4.04, 24.19, 60.61, 51.42, -39.06),
+               "LUlnar": (2.74, 7.51, -1.09, -2.54, 12.70, 29.30, 4.60, -17.15),
+               "RAnteriorTibial": (3.30, 9.42, 0.66, -0.14, 10.22, 33.57, 9.79, -14.75),
+               "RUlnar": (2.49, 6.32, -2.20, -3.92, 11.62, 30.93, 16.50, -4.60),
+               "Splenic": (2.33, 6.12, -0.87, -0.04, 9.22, 23.20, -0.58, -5.95)}
+KEYS_X = [(q, m) for q in ("P", "Q") for m in ("RMS", "MAX", "SYS", "DIAS")]
+
+
+@pytest.fixture(scope="module")
+def case5():
+    return benchmarks.network37(ROOT) if ROOT else None
+
+
+@needs_data
+def test_metric_code_reproduces_table_x_for_published_fvm(case5):
+    """Protocol: in-vitro cycle at tini (time_shifts.txt) - 1 ms, samples inside the published 15 s
+    run only (the anterior tibial window runs past it). All 64 FVM entries within 0.15 points."""
+    for site, vals in TABLE_X_FVM.items():
+        e = case5["sites"][site]["schemes_vs_exp"]["FVM"]
+        assert [e[q][m] for q, m in KEYS_X] == pytest.approx(vals, abs=0.15), site
+
+
+@needs_data
+def test_network37_against_in_vitro_and_published_fvm(case5):
+    """Case 5. arterial1d vs in vitro, RMS P 1.87-3.72%, RMS Q 9.3-25.8% (published FVM 1.87-3.75,
+    9.2-25.4); arterial1d vs published FVM 0.06-0.15% RMS P, 0.16-0.35% RMS Q, no timing lag."""
+    assert case5["periodicity"] < 1e-4 and abs(case5["mass_error"]) < 1e-3
+    for site, vals in TABLE_X_FVM.items():
+        so = case5["sites"][site]
+        assert so["vs_exp"]["P"]["RMS"] < vals[0] + 0.3, site
+        assert so["vs_exp"]["Q"]["RMS"] < vals[4] + 1.0, site
+        assert so["vs_schemes"]["FVM"]["P"]["RMS"] < 0.3 and so["vs_schemes"]["FVM"]["Q"]["RMS"] < 0.6, site

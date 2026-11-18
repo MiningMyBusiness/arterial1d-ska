@@ -197,3 +197,87 @@ def carotid(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: i
     site = o.pop("sites")["mid"]
     o.update(site)
     return o
+
+
+# ---- case 5: 37-artery in-vitro network (Matthys et al. 2007; Boileau et al. 2015, section 4.5) ----
+# Geometry, wall thickness and terminal resistances from the supplement's mesh.txt (resistances
+# there are in units of 1e9 Pa s/m^3); rho 1050, mu 2.5 mPa s, zeta 9, E 1.2 MPa, Pd = Pext = 0
+# (A0 at zero pressure), outflow pressure 432.6 Pa, linear radius taper (Table IX).
+# Measurement sites (not listed in the paper) identified by matching every segment and position
+# against the published FVM output: all are segment midpoints, each matching to 0.2-0.5% with the
+# next candidate at least 4x worse.
+NETWORK37_SITES = {"AorticArchII": 10, "ThoracicAortaII": 17, "LSubclavianI": 11, "RIliacFemoralII": 29,
+                   "LUlnar": 14, "RAnteriorTibial": 34, "RUlnar": 7, "Splenic": 20}
+NETWORK37_PUBLISHED_END = 15.0     # the published 1-D runs end at 14.999 s
+NETWORK37_OFFSET = -1e-3           # 1 ms time-label offset; with it the code reproduces Table X (FVM)
+
+
+def build_network37(root: Optional[os.PathLike] = None, dx: float = 0.0025, junction: str = "total") -> Network:
+    r = reference_root(root)
+    if r is None:
+        raise FileNotFoundError(f"Boileau et al. 2015 supplementary data not found; set {ENV}")
+    m = np.loadtxt(r / "Benchmark5_37ArteryNetwork" / "mesh.txt")
+    seg_ending_at = {int(row[2]): int(row[0]) for row in m}
+    starts = set(m[:, 1].astype(int))
+    vs = []
+    for row in m:
+        k, n0, n1 = int(row[0]), int(row[1]), int(row[2])
+        parent = seg_ending_at.get(n0)
+        terminal = n1 not in starts
+        vs.append(Vessel(f"s{k}", row[3], row[4], row[5], None if parent is None else f"s{parent}", E=1.2e6,
+                         h=row[6], taper="linear", R1=row[9] * 1e9 if terminal else None))
+    return Network(vs, rho=1050.0, mu=2.5e-3, alpha=1.0, friction_coeff_pi=22.0, dx=dx, P_ven=432.6, P_ref=0.0,
+                   total_pressure=(junction == "total"))
+
+
+def _time_windows(path):
+    import re
+    raw = Path(path).read_bytes().decode("utf-16")
+    return {a: float(b) for a, b in re.findall(r"(\w+)\s*tini\s*=\s*([0-9.]+)", raw)}
+
+
+def network37(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: int = 30,
+              junction: str = "total") -> dict:
+    """Run case 5 and compare P and Q at the eight measurement sites with the in-vitro data and
+    with the six published schemes (the paper's error measures, %)."""
+    r = reference_root(root)
+    if r is None:
+        raise FileNotFoundError(f"Boileau et al. 2015 supplementary data not found; set {ENV}")
+    base = r / "Benchmark5_37ArteryNetwork"
+    f, period, _ = read_inflow_formula(base / "inflow.txt")
+    net = build_network37(r, dx, junction)
+    res = net.simulate(lambda t: f(t) * 1e-6, period, cycles,
+                       {nm: net.node(f"s{k}", 0.5) for nm, k in NETWORK37_SITES.items()}, P_init=0.0)
+    if not res.finite:
+        raise RuntimeError("simulation did not stay finite")
+    n = int(round(period * 1000))
+    t = np.mod(res.t[-n:] + 1e-9, period) - 1e-9
+    tini = _time_windows(base / "time_shifts.txt")
+    pub = {s: (np.loadtxt(base / "NumData" / f"{s}_P.txt"), np.loadtxt(base / "NumData" / f"{s}_Q.txt"))
+           for s in SCHEMES}
+    out = {"case": 5, "dx": dx, "cycles": cycles, "dt": res.dt, "junction": junction,
+           "periodicity": float(max(np.max(np.abs(res.P[k][-n:] - res.P[k][-2 * n:-n])) / np.ptp(res.P[k][-n:])
+                                    for k in NETWORK37_SITES)),
+           "mass_error": float(res.volume_out[-1] / res.volume_in[-1] - 1), "sites": {}}
+    for j, nm in enumerate(NETWORK37_SITES):
+        ep, eq = np.loadtxt(base / "ExpData" / f"{nm}_P.txt"), np.loadtxt(base / "ExpData" / f"{nm}_Q.txt")
+        te = ep[:, 0] + tini[nm] + NETWORK37_OFFSET
+        keep = te < NETWORK37_PUBLISHED_END - 1e-9        # as the paper: samples inside the published run
+        te = te[keep]
+        ref = {"P": ep[keep, 1] * 1e3, "Q": eq[keep, 1] * 1e-6}
+        mine = {"P": on_times(te, t, res.P[nm][-n:], period), "Q": on_times(te, t, res.Q[nm][-n:], period)}
+        so = {"n_samples": int(keep.sum()), "vs_exp": all_errors(ref, mine), "schemes_vs_exp": {}, "vs_schemes": {},
+              "mmHg": {"mine": [float(x / MMHG) for x in (mine["P"].min(), mine["P"].mean(), mine["P"].max())],
+                       "exp": [float(x / MMHG) for x in (ref["P"].min(), ref["P"].mean(), ref["P"].max())]}}
+        for s, (P, Q) in pub.items():
+            col = j + 1
+            if not (np.isfinite(P[:, col]).all() and np.isfinite(Q[:, col]).all()):
+                continue
+            so["schemes_vs_exp"][s] = all_errors(ref, {"P": np.interp(te, P[:, 0], P[:, col] * 1e3),
+                                                       "Q": np.interp(te, Q[:, 0], Q[:, col] * 1e-6)})
+            tp = np.mod(P[-n:, 0] + 1e-9, period) - 1e-9   # last cycle of the published run
+            so["vs_schemes"][s] = all_errors({"P": P[-n:, col] * 1e3, "Q": Q[-n:, col] * 1e-6},
+                                             {"P": on_times(tp, t, res.P[nm][-n:], period),
+                                              "Q": on_times(tp, t, res.Q[nm][-n:], period)})
+        out["sites"][nm] = so
+    return out

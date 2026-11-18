@@ -8,9 +8,9 @@ arterial1d is an independent implementation, compatible with the network file fo
 different numerical scheme (two-step MacCormack finite differences; openBF uses MUSCL finite
 volumes). It is not a port of openBF.
 
-> **Status: pre-release.** Validated against four of the six benchmarks of Boileau et al. (2015) so
-> far: cases 2–4 (common carotid, upper thoracic aorta, aortic bifurcation; against 3-D) and case 6
-> (ADAN56). Cases 1 and 5 are not yet run.
+> **Status: pre-release.** Validated against five of the six benchmarks of Boileau et al. (2015) so
+> far: cases 2–4 (common carotid, upper thoracic aorta, aortic bifurcation; against 3-D), case 5
+> (37-artery network; against in-vitro measurements) and case 6 (ADAN56). Case 1 is not yet run.
 
 ## Install
 
@@ -65,8 +65,9 @@ Per vessel, with area A, flow Q, pressure P:
 
 Error measures and comparison protocol are those of Boileau et al. (2015). The benchmark code
 reproduces the paper's published FVM errors against 3-D (Tables IV, VI and VIII) from the published
-files to within 0.035 percentage points, which checks the metrics and the time alignment
-independently of arterial1d. Errors of the published schemes below are the paper's.
+files to within 0.035 percentage points, and Table X (against in vitro, case 5) within 0.15,
+which checks the metrics and the time alignment independently of arterial1d. Errors of the
+published schemes below are the paper's.
 
 **Case 2, common carotid artery** (single elastic vessel, three-element Windkessel; reference: the
 3-D fluid–structure solution of Xiao et al. 2014). Mid-vessel pressure P, flow Q, change in radius
@@ -106,8 +107,24 @@ DCG, McC and STM by 0.05–0.09% RMS pressure.
 All 36 measures fall within the published range, and arterial1d differs from the published FEM
 and MacCormack solutions by about 0.01% RMS pressure at all three sites.
 
-Cases 2–4 are uniform (untapered) vessels and show no timing lag against FVM (case 3: −0.3 ms
-best-fit over 24 cm). Reproduce with `python scripts/benchmark_boileau.py {carotid,thoracic_aorta,bifurcation} --data <folder>`.
+**Case 5, 37-artery in-vitro network** (Matthys et al. 2007: silicone tubes, 37 segments of which
+22 tapered, 16 resistive outlets; reference: measured pressure and flow at 8 sites). The paper does
+not list which segment each site is; matching every segment and position against the published
+FVM output identifies all eight unambiguously as segment midpoints (10, 17, 11, 29, 14, 34, 7, 20).
+
+| RMS error vs in vitro, % | pressure, 8 sites | flow, 8 sites |
+| --- | --- | --- |
+| **arterial1d** | **1.87–3.72** | **9.3–25.8** |
+| published FVM (Table X) | 1.87–3.75 | 9.2–25.4 |
+
+58 of 64 measures fall within the published schemes' range; the six outside are flow extremes and
+the thoracic aorta's RMS flow, within 1.2 points of the range. arterial1d differs from the published
+FVM solution by 0.06–0.15% RMS pressure and 0.16–0.35% RMS flow, with no timing lag (≤ 0.2 ms) at
+the distal sites. Results are grid-converged at dx = 2.5 mm (1.25 mm changes them by ≤ 0.02).
+
+Cases 2–5 show no timing lag against FVM (case 3: −0.3 ms over 24 cm; case 5: ≤ 0.2 ms through a
+tapered tree). Reproduce with
+`python scripts/benchmark_boileau.py {carotid,thoracic_aorta,bifurcation,network37} --data <folder>`.
 
 **ADAN56** (Boileau et al. 2015, benchmark 6; 56 arteries in 77 segments, 31 Windkessel outlets).
 Bundled network and inflow from openBF. Mid-vessel pressure over the last of 15 cycles, dx = 2.5 mm,
@@ -126,12 +143,14 @@ difference as % of the reference pulse pressure.
 Diastolic, mean and systolic pressures agree within 0.4 mmHg at every site. Flow RMS differences
 are 0.2–1.6% of peak flow. The worst sites are distal: arterial1d's pulse arrives up to 2.7 ms
 later than the FVM solution's at the anterior tibial, and this lag does not shrink with grid
-(1.25–5 mm) or time-step refinement. Its cause is not yet known; cases 2–4 (uniform vessels,
-one junction) show no such lag, so tapering is the first suspect.
+(1.25–5 mm) or time-step refinement. Its cause is not yet known. Cases 2–5, including the tapered
+37-artery tree, show no such lag, and the bundled ADAN56 geometry and outlets match the benchmark's
+own `mesh.txt` to 2e-8; wall stiffness (per-vessel E with the thickness law) and the momentum-flux
+coefficient are the remaining suspects.
 
 Reproduce with `python scripts/benchmark_adan56.py --data <folder>` (see *Reference data*).
 
-**Not yet validated:** Boileau et al. cases 1 and 5 (single pulse; 37-artery in-vitro network).
+**Not yet validated:** Boileau et al. case 1 (single pulse in a 10 m tube).
 
 ## Limitations
 
@@ -163,6 +182,9 @@ network and benchmark:
 
 - E. Boileau et al., "A benchmark study of numerical schemes for one-dimensional arterial blood
   flow modelling", Int. J. Numer. Meth. Biomed. Engng 31 (2015) e02732. doi:10.1002/cnm.2732
+- K. S. Matthys et al., "Pulse wave propagation in a model human arterial network: assessment of 1-D
+  numerical simulations against in vitro measurements", J. Biomech. 40 (2007) 3476–3486 (case 5
+  in-vitro data).
 - N. Xiao, J. Alastruey, C. A. Figueroa, "A systematic comparison between 1-D and 3-D hemodynamics in
   compliant arterial models", Int. J. Numer. Meth. Biomed. Engng 30 (2014) 204–231 (3-D reference
   solutions of cases 2–4).
