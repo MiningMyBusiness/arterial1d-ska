@@ -89,59 +89,111 @@ def _adan56_yaml():
     return adan56_path()
 
 
-# ---- case 2: common carotid artery (Boileau et al. 2015, section 4.2, Table III) -----------------
-# Elastic tube, P = Pd + (4/3) sqrt(pi) E h / Ad (sqrt(A) - sqrt(Ad)); three-element Windkessel.
-CAROTID = dict(L=0.126, rd=3.0e-3, h=0.3e-3, E=700.0e3, Pd=10.933e3, rho=1060.0, mu=4.0e-3, zeta=2,
-               R1=2.4875e8, R2=1.8697e9, C=1.7529e-10)
-CAROTID_LAST_CYCLE = 8.8          # README: last cycle 8.8-9.9 s in the 1-D files
-CAROTID_SHIFT_3D = 0.056          # the 3-D cycle starts 0.055 s later in the inflow (README), plus 1 ms
-                                  # time-label offset; reproduces Table IV exactly for FVM and FEM
+# ---- cases 2-4: single vessels and the aortic bifurcation, against 3-D (Xiao et al. 2014) -------
+# Elastic tube, P = Pd + (4/3) sqrt(pi) E h / Ad (sqrt(A) - sqrt(Ad)); three-element Windkessel
+# outlets; parameters from Tables III, V and VII of Boileau et al. 2015. Pd for cases 3 and 4 is
+# printed as "9.4^6 kPa"; 9.466 kPa follows from the tables' Ad and A(x,0) through the tube law
+# (the same calculation gives case 2's printed 10.933 kPa).
+#
+# phase_3d: inflow phase (s into the cycle of the inflow formula) at t = 0 of the 3-D file. Found
+# by reproducing the published FVM errors (Tables IV, VI, VIII) from the files: 0.056, 0.002, 0.001.
+# window: start of the last cycle in the published 1-D files (README tini). cycles: enough for a
+# periodic state to 1e-7 (the Windkessel time constants of cases 3 and 4 are about 1.1 s).
+# Case 3 caveat: the 3-D solution and five of the six published schemes carry a mean flow of
+# 102.80-102.84 mL/s; the inflow formula in the supplement (used here, and apparently by LCG) has
+# 103.085 mL/s, 0.27% more. This alone raises mean pressure by about 30 Pa (0.25% RMS).
+_VESSELS = {
+    "carotid": [dict(name="vessel", parent=None, L=0.126, rd=3.0e-3, h=0.3e-3, E=700.0e3,
+                     R1=2.4875e8, R2=1.8697e9, C=1.7529e-10)],
+    "thoracic_aorta": [dict(name="vessel", parent=None, L=0.24137, rd=1.2e-2, h=1.2e-3, E=400.0e3,
+                            R1=1.1752e7, R2=1.1167e8, C=1.0163e-8)],
+    "bifurcation": [dict(name="aorta", parent=None, L=0.086, rd=0.86e-2, h=1.032e-3, E=500.0e3),
+                    dict(name="iliac_1", parent="aorta", L=0.085, rd=0.60e-2, h=0.72e-3, E=700.0e3,
+                         R1=6.8123e7, R2=3.1013e9, C=3.6664e-10),
+                    dict(name="iliac_2", parent="aorta", L=0.085, rd=0.60e-2, h=0.72e-3, E=700.0e3,
+                         R1=6.8123e7, R2=3.1013e9, C=3.6664e-10)],
+}
+CASES = {
+    "carotid": dict(folder="Benchmark2_CommonCarotidArtery", Pd=10.933e3, zeta=2, window=8.8, phase_3d=0.056, cycles=10,
+                    sites={"mid": ("vessel", 0.5, "")}, dP=("vessel", 0.0, "vessel", 1.0)),
+    "thoracic_aorta": dict(folder="Benchmark3_UpperThoracicAorta", Pd=9.466e3, zeta=9, window=19.045, cycles=22,
+                           phase_3d=0.002, sites={"mid": ("vessel", 0.5, "")}, dP=("vessel", 0.0, "vessel", 1.0)),
+    "bifurcation": dict(folder="Benchmark4_AorticBifurcation", Pd=9.466e3, zeta=9, window=28.6, phase_3d=0.001, cycles=30,
+                        sites={"aorta_mid": ("aorta", 0.5, "_AortaMid"), "aorta_end": ("aorta", 1.0, "_Junction"),
+                               "iliac_mid": ("iliac_1", 0.5, "_IliacMid")}, dP=None),
+}
+CASE_NUMBER = {"carotid": 2, "thoracic_aorta": 3, "bifurcation": 4}
 
 
-def _single_vessel(p, dx, junction=True):
-    v = Vessel("vessel", p["L"], p["rd"], p["rd"], None, E=p["E"], h=p["h"], R1=p["R1"], R2=p["R2"], C=p["C"])
-    return Network([v], rho=p["rho"], mu=p["mu"], alpha=1.0, friction_coeff_pi=2.0 * (p["zeta"] + 2), dx=dx,
-                   P_ven=0.0, P_ref=p["Pd"])
+def build_case(case: str, dx: float = 0.0025, junction: str = "total") -> Network:
+    c = CASES[case]
+    vs = [Vessel(v["name"], v["L"], v["rd"], v["rd"], v["parent"], E=v["E"], h=v["h"],
+                 R1=v.get("R1"), R2=v.get("R2"), C=v.get("C")) for v in _VESSELS[case]]
+    return Network(vs, rho=1060.0, mu=4.0e-3, alpha=1.0, friction_coeff_pi=2.0 * (c["zeta"] + 2), dx=dx,
+                   P_ven=0.0, P_ref=c["Pd"], total_pressure=(junction == "total"))
 
 
 def _published_cycle(path, t0, period):
-    """One cycle of a published 1-D solution: (t in cycle, P [Pa], Q [m^3/s], dr [m], dP [Pa])."""
+    """One cycle of a published solution: (t in cycle, {P [Pa], Q [m^3/s], dr [m], dP [Pa]})."""
     d = np.loadtxt(path)
     d = d[(d[:, 0] >= t0 - 1e-9) & (d[:, 0] < t0 + period - 1e-9)]
-    return d[:, 0] - t0, d[:, 1] * 1e3, d[:, 2] * 1e-6, d[:, 3] * 1e-3, d[:, 4] * 1e3
+    scale = (1e3, 1e-6, 1e-3, 1e3)
+    return d[:, 0] - t0, {k: d[:, j + 1] * scale[j] for j, k in enumerate(("P", "Q", "dr", "dP")[:d.shape[1] - 1])}
 
 
-def carotid(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: int = 10) -> dict:
-    """Run case 2 and compare mid-vessel P, Q, dr and the inlet-outlet pressure drop with the 3-D
-    solution and with the six published 1-D schemes, using the paper's error measures (%)."""
+def run_case(case: str, root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: Optional[int] = None,
+             junction: str = "total") -> dict:
+    """Run case 2, 3 or 4 and compare, at each published site, P, Q, dr (and the inlet-outlet
+    pressure drop for single vessels) with the 3-D solution and with the six published 1-D
+    schemes, using the paper's error measures (%)."""
     r = reference_root(root)
     if r is None:
         raise FileNotFoundError(f"Boileau et al. 2015 supplementary data not found; set {ENV}")
-    base = r / "Benchmark2_CommonCarotidArtery"
+    c = CASES[case]
+    cycles = cycles or c["cycles"]
+    base = r / c["folder"]
     f, period, _ = read_inflow_formula(base / "inflow.txt")
-    p = CAROTID
-    net = _single_vessel(p, dx)
-    probes = {"mid": net.node("vessel", 0.5), "in": net.node("vessel", 0.0), "out": net.node("vessel", 1.0)}
-    res = net.simulate(lambda t: f(t) * 1e-6, period, cycles, probes, P_init=p["Pd"])
+    net = build_case(case, dx, junction)
+    probes = {k: net.node(v, x) for k, (v, x, _) in c["sites"].items()}
+    if c["dP"]:
+        probes["dP_in"], probes["dP_out"] = net.node(c["dP"][0], c["dP"][1]), net.node(c["dP"][2], c["dP"][3])
+    res = net.simulate(lambda t: f(t) * 1e-6, period, cycles, probes, P_init=c["Pd"])
     if not res.finite:
         raise RuntimeError("simulation did not stay finite")
     n = int(round(period * 1000))
-    t = res.t[-n:] - (cycles - 1) * period                  # time in the last cycle (true time)
-    mine = {"P": res.P["mid"][-n:], "Q": res.Q["mid"][-n:],
-            "dr": np.sqrt(res.A["mid"][-n:] / np.pi) - p["rd"], "dP": res.P["in"][-n:] - res.P["out"][-n:]}
-    out = {"dx": dx, "cycles": cycles, "dt": res.dt,
-           "periodicity": float(np.max(np.abs(res.P["mid"][-n:] - res.P["mid"][-2 * n:-n])) / np.ptp(mine["P"])),
-           "mass_error": float(res.volume_out[-1] / res.volume_in[-1] - 1)}
-    d3 = np.loadtxt(base / "NumData" / "3D.txt")
-    ref3 = {"P": d3[:, 1] * 1e3, "Q": d3[:, 2] * 1e-6, "dr": d3[:, 3] * 1e-3, "dP": d3[:, 4] * 1e3}
-    out["vs_3D"] = all_errors(ref3, {k: on_times(d3[:, 0] + CAROTID_SHIFT_3D, t, y, period) for k, y in mine.items()})
-    out["schemes_vs_3D"], out["vs_schemes"] = {}, {}
-    for s in SCHEMES:
-        tp, *ys = _published_cycle(base / "NumData" / f"{s}.txt", CAROTID_LAST_CYCLE, period)
-        pub = dict(zip(("P", "Q", "dr", "dP"), ys))
-        out["schemes_vs_3D"][s] = all_errors(ref3, {k: on_times(d3[:, 0] + CAROTID_SHIFT_3D, tp, y, period)
-                                                    for k, y in pub.items()})
-        out["vs_schemes"][s] = all_errors(pub, {k: on_times(tp, t, y, period) for k, y in mine.items()})
-    out["mmHg"] = {"mine": [float(x / MMHG) for x in (mine["P"].min(), mine["P"].mean(), mine["P"].max())],
-                   "3D": [float(x / MMHG) for x in (ref3["P"].min(), ref3["P"].mean(), ref3["P"].max())]}
+    t = np.mod(res.t[-n:] + 1e-9, period) - 1e-9          # inflow phase (true time mod period)
+    vessel_of = {k: v for k, (v, _, _) in c["sites"].items()}
+    rd = {v["name"]: v["rd"] for v in _VESSELS[case]}
+    out = {"case": CASE_NUMBER[case], "dx": dx, "cycles": cycles, "dt": res.dt, "junction": junction,
+           "periodicity": float(max(np.max(np.abs(res.P[k][-n:] - res.P[k][-2 * n:-n])) / np.ptp(res.P[k][-n:])
+                                    for k in c["sites"])),
+           "mass_error": float(res.volume_out[-1] / res.volume_in[-1] - 1), "sites": {}}
+    for site, (vname, _, suffix) in c["sites"].items():
+        mine = {"P": res.P[site][-n:], "Q": res.Q[site][-n:], "dr": np.sqrt(res.A[site][-n:] / np.pi) - rd[vname]}
+        if c["dP"]:
+            mine["dP"] = res.P["dP_in"][-n:] - res.P["dP_out"][-n:]
+        d3 = np.loadtxt(base / "NumData" / f"3D{suffix}.txt")
+        t3 = d3[:, 0] + c["phase_3d"]
+        _, ref3 = _published_cycle(base / "NumData" / f"3D{suffix}.txt", 0.0, period)
+        so = {"vs_3D": all_errors(ref3, {k: on_times(t3, t, y, period) for k, y in mine.items()}),
+              "schemes_vs_3D": {}, "vs_schemes": {},
+              "mmHg": {"mine": [float(x / MMHG) for x in (mine["P"].min(), mine["P"].mean(), mine["P"].max())],
+                       "3D": [float(x / MMHG) for x in (ref3["P"].min(), ref3["P"].mean(), ref3["P"].max())]}}
+        win_phase = np.mod(c["window"], period)
+        for s in SCHEMES:
+            tp, pub = _published_cycle(base / "NumData" / f"{s}{suffix}.txt", c["window"], period)
+            if not all(np.isfinite(y).all() for y in pub.values()):
+                continue                                   # e.g. case 4 LCG files contain NaN
+            tp = tp + win_phase                            # published window start -> inflow phase
+            so["schemes_vs_3D"][s] = all_errors(ref3, {k: on_times(t3, tp, y, period) for k, y in pub.items()})
+            so["vs_schemes"][s] = all_errors(pub, {k: on_times(tp, t, y, period) for k, y in mine.items() if k in pub})
+        out["sites"][site] = so
     return out
+
+
+def carotid(root: Optional[os.PathLike] = None, *, dx: float = 0.0025, cycles: int = 10) -> dict:
+    """Case 2 (kept for the original interface): run_case('carotid') with its single site flattened."""
+    o = run_case("carotid", root, dx=dx, cycles=cycles)
+    site = o.pop("sites")["mid"]
+    o.update(site)
+    return o
