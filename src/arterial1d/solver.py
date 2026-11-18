@@ -15,7 +15,9 @@ to one scalar Newton solve for the boundary pressure:
     inlet     prescribed flow Q_in(t)
     junction  mass conservation + continuity of total pressure P + rho u^2/2 (static pressure
               optional), one parent and up to 3 daughters
-    outlet    three-element Windkessel:  Q = (P - P_c)/R1,  C dP_c/dt = Q - (P_c - P_ven)/R2
+    outlet    three-element Windkessel:  Q = (P - P_c)/R1,  C dP_c/dt = Q - (P_c - P_ven)/R2,
+              or a pure resistance Q = (P - P_ven)/R1 (no C, no R2); with R1 matched to the
+              characteristic impedance this is a (linearly) non-reflecting outlet
 The time step is fixed for a run (see Network.dt_max).
 """
 from __future__ import annotations
@@ -45,9 +47,11 @@ class Vessel:
     # stiffness: either reference wave speeds at both ends, or a Young's modulus
     c_in: Optional[float] = None  # wave speed at A0, upstream end, m/s
     c_out: Optional[float] = None
-    E: Optional[float] = None     # Pa; c0 = sqrt(2 E h / (3 rho r)) with the empirical thickness law
+    E: Optional[float] = None     # Pa; c0 = sqrt(2 E h / (3 rho r))
+    h: Optional[float] = None     # wall thickness, m (with E); None = the empirical thickness law
     taper: str = "exp"            # radius interpolation along the vessel: "exp" or "linear"
-    # terminal Windkessel (only for vessels with no daughters)
+    # terminal condition (only for vessels with no daughters): three-element Windkessel R1-C-R2,
+    # or a pure resistance R1 when R2 and C are both None
     R1: Optional[float] = None    # Pa s/m^3; None = matched to the characteristic impedance
     R2: Optional[float] = None
     C: Optional[float] = None     # m^3/Pa
@@ -184,7 +188,8 @@ def _run(A, Q, A0, beta, start, end, dxv, parent, daughters, n_daughters, is_ter
                         break
                 An[m] = _area(Pb, A0[m], beta[m])
                 Qn[m] = (Pb - Pc[v]) / R1[v]
-                Pc[v] += dt * (Qn[m] - (Pc[v] - P_ven) / R2[v]) / C[v]
+                if C[v] > 0.0:                      # Windkessel; otherwise Pc stays at P_ven
+                    Pc[v] += dt * (Qn[m] - (Pc[v] - P_ven) / R2[v]) / C[v]
             else:
                 # junction at the downstream end of v: mass conserved and, with total_pressure,
                 # P + rho u^2 / 2 continuous (static pressure otherwise). The dynamic-pressure
@@ -309,7 +314,8 @@ class Network:
             else:
                 r0 = v.r_in * (v.r_out / v.r_in) ** (x / v.length)
             if v.E is not None:
-                c0 = np.sqrt(2.0 * v.E * wall_thickness(r0) / (3.0 * rho * r0))
+                h = wall_thickness(r0) if v.h is None else v.h
+                c0 = np.sqrt(2.0 * v.E * h / (3.0 * rho * r0))
             else:
                 c0 = v.c_in * (v.c_out / v.c_in) ** (x / v.length)
             a0 = np.pi * r0 ** 2
@@ -331,11 +337,15 @@ class Network:
         self.R1, self.R2, self.C = np.ones(n_v), np.ones(n_v), np.ones(n_v)
         for i, v in enumerate(vessels):
             if self.is_terminal[i]:
-                assert v.R2 is not None and v.C is not None, f"{v.name}: terminal vessel needs R2 and C"
+                assert (v.R2 is None) == (v.C is None), f"{v.name}: give both R2 and C, or neither (pure resistance)"
                 m = self.end[i] - 1
                 z0 = np.sqrt(self.beta[m] / (2 * rho)) * self.A0[m] ** 0.25 * rho / self.A0[m]
                 self.R1[i] = z0 if v.R1 is None else v.R1
-                self.R2[i], self.C[i] = v.R2, v.C
+                if v.C is None:
+                    self.R2[i], self.C[i] = np.inf, 0.0      # pure resistance
+                else:
+                    assert v.C > 0 and v.R2 > 0, f"{v.name}: R2 and C must be positive"
+                    self.R2[i], self.C[i] = v.R2, v.C
         # fixed time step from the stiffest state expected: c grows as A^(1/4), allow headroom
         c0 = np.sqrt(self.beta / (2 * rho)) * self.A0 ** 0.25
         self.dt_max = cfl * np.min(np.repeat(self.dxv, self.end - self.start) / (c_headroom * c0))
@@ -369,6 +379,7 @@ class Network:
             A = _area(np.full_like(self.A0, P_init - self.P_ref), self.A0, self.beta)
             Q = np.zeros_like(A)
             Pc = np.full(len(self.vessels), P_init - self.P_ref)
+            Pc[self.C == 0.0] = self.P_ven - self.P_ref          # pure-resistance outlets
         else:
             A, Q, Pc = state["A"].copy(), state["Q"].copy(), state["Pc"].copy()
         names = list(probes)

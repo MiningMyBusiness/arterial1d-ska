@@ -103,3 +103,34 @@ def test_pressures_are_physiological(benchmark_run):
     assert 0 < p.mean() - wrist.mean() < 25                 # mean pressure falls along the arm
     fem = r.P["femoral"][-n:] / MMHG
     assert fem.max() - fem.min() > 1.3 * (p.max() - p.min())   # pulse pressure amplifies towards the leg
+
+
+def test_prescribed_wall_thickness_sets_wave_speed():
+    E, h, r, rho = 7e5, 0.3e-3, 3e-3, 1060.0
+    net = Network([Vessel("v", 0.1, r, r, None, E=E, h=h, R1=1e8, R2=1e9, C=1e-10)], rho=rho)
+    assert net.wave_speed0()[0] == pytest.approx(np.sqrt(2 * E * h / (3 * rho * r)), rel=1e-12)
+
+
+def test_resistance_outlet_gives_ohmic_pressure_drop_in_steady_flow():
+    """Steady 5 mL/s through a short viscous tube into R = 1e8 Pa s/m^3 with P_ven = 432.6 Pa:
+    outlet pressure P_ven + R Q, and the Windkessel state does not move."""
+    R, Pv, q = 1e8, 432.6, 5e-6
+    net = Network([Vessel("v", 0.2, 3e-3, 3e-3, None, c_in=6.0, c_out=6.0, R1=R)], mu=0.0035, P_ven=Pv, dx=0.005)
+    i = net.node("v", 1.0)
+    r = net.simulate(lambda t: np.full_like(t, q), 0.5, 6, {"out": i}, P_init=Pv)
+    assert r.finite
+    assert r.Q["out"][-1] == pytest.approx(q, rel=1e-4)
+    assert r.P["out"][-1] == pytest.approx(Pv + R * q, rel=1e-3)
+    assert net.state["Pc"][0] == pytest.approx(Pv - net.P_ref)
+
+
+def test_matched_resistance_outlet_absorbs_a_pulse():
+    net = Network([Vessel("tube", 1.0, 0.01, 0.01, None, c_in=6.0, c_out=6.0)], mu=0.0, dx=0.0025)  # R1 None: matched
+    r = net.simulate(_pulse, 0.4, 1, {"mid": net.node("tube", 0.5)}, P_init=0.0)
+    p = r.P["mid"]
+    assert np.abs(p[r.t > 0.2]).max() < 0.03 * p[r.t < 0.17].max()
+
+
+def test_windkessel_needs_both_r2_and_c():
+    with pytest.raises(AssertionError):
+        Network([Vessel("v", 0.1, 3e-3, 3e-3, None, c_in=6.0, c_out=6.0, R2=1e9)])

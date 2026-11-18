@@ -3,12 +3,13 @@
 Only the subset of the format that this solver can represent is accepted. Anything else raises
 UnsupportedFeature rather than being silently ignored:
 
-  supported   label, sn, tn, L, R0 or Rp/Rd (linear taper), E, Pext (one value for the whole
+  supported   label, sn, tn, L, R0 or Rp/Rd (linear taper), E, h0 (wall thickness; default the
+              thickness law below), Pext (one value for the whole
               network), gamma_profile, outlets with R1, R2 and Cc (three-element Windkessel;
               `outlet: wk3` accepted);
               M, to_save, initial_pressure and initial_flow are read but not used (this solver
               sets its own mesh and initial state)
-  unsupported visco-elastic walls, h0 (prescribed wall thickness), Rt (reflection-coefficient
+  unsupported visco-elastic walls, Rt (reflection-coefficient
               outlets), outlets without R2 and Cc, Pout != 0, inlet_impedance_matching,
               anastomoses (a node with two parents) and networks with more than one inlet
 
@@ -29,9 +30,9 @@ from .solver import Network, Vessel
 PathLike = Union[str, Path]
 
 _IGNORED = {"M", "to_save", "initial_pressure", "initial_flow"}
-_KNOWN = {"label", "sn", "tn", "L", "R0", "Rp", "Rd", "E", "Pext", "gamma_profile", "R1", "R2", "Cc", "Pout",
+_KNOWN = {"label", "sn", "tn", "L", "R0", "Rp", "Rd", "E", "h0", "Pext", "gamma_profile", "R1", "R2", "Cc", "Pout",
           "outlet"} | _IGNORED
-_UNSUPPORTED = {"visco-elastic": "viscoelastic walls", "h0": "prescribed wall thickness",
+_UNSUPPORTED = {"visco-elastic": "viscoelastic walls",
                 "Rt": "reflection-coefficient outlets",
                 "inlet_impedance_matching": "inlet impedance matching"}
 
@@ -106,7 +107,8 @@ def load_network(path: PathLike, *, dx: float = 0.005, cfl: float = 0.8, junctio
             raise ValueError(f"{s['label']}: missing radius")
         rp = float(s.get("Rp", s.get("R0")))
         rd = float(s.get("Rd", rp))
-        v = Vessel(s["label"], float(s["L"]), rp, rd, parent_of[s["label"]], E=float(s["E"]), taper="linear")
+        v = Vessel(s["label"], float(s["L"]), rp, rd, parent_of[s["label"]], E=float(s["E"]), taper="linear",
+                   h=float(s["h0"]) if "h0" in s else None)
         is_outlet = not any(parent_of[o["label"]] == s["label"] for o in segs)
         if is_outlet:
             if not all(k in s for k in ("R1", "R2", "Cc")):

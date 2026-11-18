@@ -29,7 +29,7 @@ def test_reads_a_small_bifurcation(tmp_path):
     assert net.n_daughters[0] == 2 and net.is_terminal.tolist() == [False, True, True]
 
 
-@pytest.mark.parametrize("key,value", [("visco-elastic", True), ("h0", 0.001), ("Rt", 0.5),
+@pytest.mark.parametrize("key,value", [("visco-elastic", True), ("Rt", 0.5),
                                        ("inlet_impedance_matching", True), ("Pout", 500.0), ("outlet", "wk2"), ("foo", 1)])
 def test_rejects_unsupported_keys(tmp_path, key, value):
     cfg = copy.deepcopy(BASE)
@@ -58,3 +58,10 @@ def test_rejects_two_inlets(tmp_path):
                            "R1": 1e7, "R2": 1e9, "Cc": 1e-9})
     with pytest.raises(UnsupportedFeature):
         a1.load_network(_write(tmp_path, cfg))
+
+
+def test_reads_prescribed_wall_thickness(tmp_path):
+    cfg = copy.deepcopy(BASE)
+    cfg["network"][1]["h0"] = 0.5e-3
+    net = a1.load_network(_write(tmp_path, cfg))
+    assert net.vessels[1].h == 0.5e-3 and net.vessels[2].h is None
