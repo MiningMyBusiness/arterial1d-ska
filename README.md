@@ -1,5 +1,7 @@
 # arterial1d-ska
 
+[![DOI](https://zenodo.org/badge/1462984939.svg)](https://doi.org/10.5281/zenodo.24374689)
+
 `arterial1d`: one-dimensional blood flow in trees of elastic arteries, in Python with Numba.
 Source-available for noncommercial use (PolyForm Noncommercial 1.0.0; see *Licence*).
 
@@ -219,8 +221,28 @@ pytest tests/test_benchmarks.py
 
 ## Citing
 
-If you use arterial1d, please cite this repository (see `CITATION.cff`) and the sources of the
-network and benchmark:
+If you use arterial1d, please cite the software, preferably the version you used:
+
+> K. Bhattacharyya, *arterial1d-ska: one-dimensional blood flow in elastic arterial trees*,
+> version 0.1.0 (2026). Zenodo. https://doi.org/10.5281/zenodo.24374690
+
+```bibtex
+@software{bhattacharyya_arterial1d_2026,
+  author    = {Bhattacharyya, Kiran},
+  title     = {arterial1d-ska: one-dimensional blood flow in elastic arterial trees},
+  version   = {0.1.0},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.24374690},
+  url       = {https://doi.org/10.5281/zenodo.24374690}
+}
+```
+
+To refer to the software in general rather than one version, use the all-versions DOI
+[10.5281/zenodo.24374689](https://doi.org/10.5281/zenodo.24374689), which resolves to the latest
+release. GitHub's "Cite this repository" button reads `CITATION.cff`.
+
+Please also cite the sources of the network and benchmark:
 
 - E. Boileau et al., "A benchmark study of numerical schemes for one-dimensional arterial blood
   flow modelling", Int. J. Numer. Meth. Biomed. Engng 31 (2015) e02732. doi:10.1002/cnm.2732

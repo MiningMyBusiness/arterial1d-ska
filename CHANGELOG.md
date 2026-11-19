@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.1.0 (2026-11-18)
+## 0.1.0 (2026-11-19)
 
-First public release.
+First public release. DOI: [10.5281/zenodo.24374690](https://doi.org/10.5281/zenodo.24374690).
 
 - One-dimensional blood flow in elastic arterial trees: two-step MacCormack scheme, characteristic
   boundary conditions, junctions with one parent and up to three daughters (total- or
